@@ -18,6 +18,7 @@ uint16_t fsrTriggerLevel;
 uint16_t fsrRecoveryLevel;
 uint16_t fsrNoise;
 uint32_t fsrRecoveryTotal;
+uint32_t triggeredAt = 0;
 uint32_t lastTriggerUpdateAt = 0;
 
 bool isTriggered = false;
@@ -25,10 +26,13 @@ bool isTriggered = false;
 void setupAdc();
 void calibrateAdc();
 uint16_t readAdc();
+uint16_t filterAdc();
 void onAdcTriggerRecover();
 void setAdcTriggerWindow();
 void onFsrTrigger(uint16_t fsrValue);
 void onFsrRecover(uint16_t fsrValue);
+void updateTriggerLevel();
+void serialReport(uint16_t fsrValue);
 
 void setup() {
   Serial.begin(115200);
@@ -80,13 +84,13 @@ void onFsrRecover(uint16_t fsrValue) {
   fsrRecoveryTotal -= fsrRecoveryTotal / RECOVERY_RUNNING_AVG_LENGTH;
   fsrRecoveryTotal += fsrValue;
 
-  if (abs(micros() - lastTriggerUpdateAt) > TRIGGER_UPDATE_INTERVAL_MS) {
-    updateTriggerLevel(fsrValue);
+  if (abs((long)(micros() - lastTriggerUpdateAt)) > TRIGGER_UPDATE_INTERVAL_MS) {
+    updateTriggerLevel();
     lastTriggerUpdateAt = micros();
   }
 }
 
-void updateTriggerLevel(uint16_t fsrValue) {
+void updateTriggerLevel() {
   uint16_t fsrRecoveryAvg = fsrRecoveryTotal / RECOVERY_RUNNING_AVG_LENGTH;
 
   uint16_t fsrTriggerFloor = fsrRecoveryAvg + max(FSR_TRIGGER_MIN, 2*fsrNoise);
@@ -112,7 +116,7 @@ void setupAdc() {
   adc.setConvRate(ADS1115_860_SPS);
   adc.setMeasureMode(ADS1115_CONTINUOUS);
 
-  attachInterrupt(digitalPinToInterrupt(ADC_ALERT_PIN), onAdcTriggerRecover, FALLING);
+  // attachInterrupt(digitalPinToInterrupt(ADC_ALERT_PIN), onAdcTriggerRecover, FALLING);
 }
 
 void calibrateAdc() {
@@ -162,19 +166,19 @@ uint16_t filterAdc() {
 }
 
 // ISR called whenever the ADC reads a value above trigger or below recovery
-void onAdcTriggerRecover() {
-  fsrValue = readAdc();
+// void onAdcTriggerRecover() {
+//   fsrValue = readAdc();
 
-  if (fsrValue >= fsrTriggerLevel) {
-    // Triggered above trigger threshold
-    digitalWrite(LED_PIN, HIGH);
-    digitalWrite(OUTPUT_PIN, LOW);
-  } else {
-    // Recovered below recovery threshold
-    digitalWrite(LED_PIN, LOW);
-    digitalWrite(OUTPUT_PIN, HIGH);
-  }
-}
+//   if (fsrValue >= fsrTriggerLevel) {
+//     // Triggered above trigger threshold
+//     digitalWrite(LED_PIN, HIGH);
+//     digitalWrite(OUTPUT_PIN, LOW);
+//   } else {
+//     // Recovered below recovery threshold
+//     digitalWrite(LED_PIN, LOW);
+//     digitalWrite(OUTPUT_PIN, HIGH);
+//   }
+// }
 
 // void setAdcTriggerWindow() {
 //   uint32_t now = micros();
@@ -190,31 +194,30 @@ void onAdcTriggerRecover() {
 // }
 
 
-float getFsrTriggerMin(float baseVal) {
-  return max(500, (MAX_ADC_READING - baseVal) / MAX_ADC_READING * fsrTriggerMin);
-}
+// Use this to adapt trigger margin to scale of average readings; smaller margin up top, bigger margin toward 0.
+// float getFsrTriggerMin(float baseVal) {
+//   return max(500, (MAX_ADC_READING - baseVal) / MAX_ADC_READING * fsrTriggerMin);
+// }
 
 void serialReport(uint16_t fsrValue) {
   // unsigned long tick = (now - startTime)/100000;
   if (Serial.available() /*&& tick != lastOutputAt && tick % 2 == 1*/) {
     // Print number of iterations in last 200ms
-    Serial.print("ct:");
-    Serial.print(count);
-    Serial.print(",fsrAverage:");
-    Serial.print(fsrAverage);
-    Serial.print(",adcTrigger:");
-    Serial.print(lastAdcWindowTrigger);
-    Serial.print(",adcRecovery:");
-    Serial.print(lastAdcWindowRecovery);
+    // Serial.print("ct:");
+    // Serial.print(count);
+    // Serial.print(",adcTrigger:");
+    // Serial.print(lastAdcWindowTrigger);
+    // Serial.print(",adcRecovery:");
+    // Serial.print(lastAdcWindowRecovery);
     Serial.print(",triggerAt:");
     Serial.print(fsrTriggerLevel);
     Serial.print(",recoverAt:");
     Serial.print(fsrRecoveryLevel);
     Serial.print(",raw:");
     Serial.print(fsrValue);
-    Serial.print(",filt:");
-    Serial.println(filtValue);
-    count = 0;
-    lastOutputAt = tick;
+    // Serial.print(",filt:");
+    // Serial.println(filtValue);
+    // count = 0;
+    // lastOutputAt = tick;
   }
 }
