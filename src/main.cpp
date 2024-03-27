@@ -7,9 +7,10 @@
 
 const uint16_t CALIBRATION_TIME_MS = 500;
 const uint16_t CALIBRATION_VALUE_COUNT = 20;
-const uint16_t RECOVERY_RUNNING_AVG_LENGTH = 30;
+const uint16_t RECOVERY_RUNNING_AVG_COUNT = 30;
 const uint16_t MAX_ADC_READING = 32768;
 const uint16_t MIN_VALID_ADC_READING = 200;
+const uint16_t SERIAL_REPORT_INTERVAL_MS = 100;
 
 const ADS1115_WE adc = ADS1115_WE(ADC_I2C_ADDRESS);
 
@@ -22,6 +23,9 @@ uint32_t triggeredAt = 0;
 uint32_t lastTriggerUpdateAt = 0;
 
 bool isTriggered = false;
+
+uint32_t lastSerialReportAt = 0;
+uint16_t loopCounter = 0;
 
 void setupAdc();
 void calibrateAdc();
@@ -53,6 +57,8 @@ void loop() {
   }
 
   serialReport(fsrValue);
+
+  loopCounter++;
 }
 
 void onFsrTrigger(uint16_t fsrValue) {
@@ -61,7 +67,7 @@ void onFsrTrigger(uint16_t fsrValue) {
   }
 
   // TODO: as long as we stay triggered, add timeout after which trigger level
-  //       starts to decay so we eventually auto-reset.
+  //       starts to decay so we eventually auto-recover.
 
   digitalWrite(OUTPUT_PIN, LOW);
   digitalWrite(LED_PIN, HIGH);
@@ -81,17 +87,20 @@ void onFsrRecover(uint16_t fsrValue) {
   }
 
   // Update basis for recovery values running average.
-  fsrRecoveryTotal -= fsrRecoveryTotal / RECOVERY_RUNNING_AVG_LENGTH;
+  fsrRecoveryTotal -= fsrRecoveryTotal / RECOVERY_RUNNING_AVG_COUNT;
   fsrRecoveryTotal += fsrValue;
 
+  // TODO: this keeps accumulating time in triggered mode, meaning first recovery
+  //       value will always cause a trigger level update, which is bad because
+  //       recovery value often rebounds below average.
   if (abs((long)(micros() - lastTriggerUpdateAt)) > TRIGGER_UPDATE_INTERVAL_MS) {
-    updateTriggerLevel();
+    // updateTriggerLevel();
     lastTriggerUpdateAt = micros();
   }
 }
 
 void updateTriggerLevel() {
-  uint16_t fsrRecoveryAvg = fsrRecoveryTotal / RECOVERY_RUNNING_AVG_LENGTH;
+  uint16_t fsrRecoveryAvg = fsrRecoveryTotal / RECOVERY_RUNNING_AVG_COUNT;
 
   uint16_t fsrTriggerFloor = fsrRecoveryAvg + max(FSR_TRIGGER_MIN, 2*fsrNoise);
   // Ceiling is the configured trigger max
@@ -151,7 +160,7 @@ void calibrateAdc() {
   fsrRecoveryLevel = fsrAverage + (fsrTriggerLevel - fsrAverage) * FSR_RECOVERY_MULTIPLIER;
 
   lastTriggerUpdateAt = micros();
-  fsrRecoveryTotal = fsrAverage * RECOVERY_RUNNING_AVG_LENGTH;
+  fsrRecoveryTotal = fsrAverage * RECOVERY_RUNNING_AVG_COUNT;
 }
 
 
@@ -200,24 +209,22 @@ uint16_t filterAdc() {
 // }
 
 void serialReport(uint16_t fsrValue) {
-  // unsigned long tick = (now - startTime)/100000;
-  if (Serial.available() /*&& tick != lastOutputAt && tick % 2 == 1*/) {
-    // Print number of iterations in last 200ms
-    // Serial.print("ct:");
-    // Serial.print(count);
-    // Serial.print(",adcTrigger:");
-    // Serial.print(lastAdcWindowTrigger);
-    // Serial.print(",adcRecovery:");
-    // Serial.print(lastAdcWindowRecovery);
-    Serial.print(",triggerAt:");
+  long elapsed = abs((long)(micros() - lastSerialReportAt)) / 1000;
+
+  if (elapsed > SERIAL_REPORT_INTERVAL_MS && Serial.available()) {
+    Serial.print("loopCount:");
+    Serial.print(loopCounter);
+
+    Serial.print(",triggerLevel:");
     Serial.print(fsrTriggerLevel);
-    Serial.print(",recoverAt:");
+
+    Serial.print(",recoverLevel:");
     Serial.print(fsrRecoveryLevel);
-    Serial.print(",raw:");
-    Serial.print(fsrValue);
-    // Serial.print(",filt:");
-    // Serial.println(filtValue);
-    // count = 0;
-    // lastOutputAt = tick;
+
+    Serial.print(",fsrValue:");
+    Serial.println(fsrValue);
+
+    loopCounter = 0;
+    lastSerialReportAt = micros();
   }
 }
