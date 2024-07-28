@@ -9,11 +9,18 @@
 
 const uint16_t CALIBRATION_TIME_MS = 500;
 const uint16_t CALIBRATION_VALUE_COUNT = 20;
-const uint16_t RECOVERY_RUNNING_AVG_COUNT = 3000;
 const uint16_t MAX_ADC_READING = 32768;
 const uint16_t MIN_VALID_ADC_READING = 200;
 const uint16_t SERIAL_REPORT_INTERVAL_MS = 100;
 const int MIN_TRIGGER_COUNT = 5;
+
+#ifdef PROBE_ENABLE_PIN
+  // The window between probe disabled and probe enabled is short, so allow
+  // average to adjust faster.
+  const uint16_t RECOVERY_RUNNING_AVG_COUNT = 500;
+#else
+  const uint16_t RECOVERY_RUNNING_AVG_COUNT = 3000;
+#endif
 
 const ADS1115_WE adc = ADS1115_WE(ADC_I2C_ADDRESS);
 
@@ -26,6 +33,7 @@ uint32_t triggeredAt = 0;
 uint32_t lastTriggerUpdateAt = 0;
 
 bool isTriggered = false;
+bool isProbeEnabled = false;
 int validTriggerCount = 0;
 
 uint32_t lastSerialReportAt = 0;
@@ -39,6 +47,7 @@ void onAdcTriggerRecover();
 void setAdcTriggerWindow();
 void thresholdCheck(uint16_t fsrValue);
 void velocityCheck(uint16_t fsrValue);
+void probeEnableCheck(uint16_t fsrValue);
 void onFsrTrigger(uint16_t fsrValue);
 void onFsrRecover(uint16_t fsrValue);
 void updateTriggerLevel();
@@ -51,6 +60,11 @@ void outputLow();
 
 void setup() {
   Serial.begin(115200);
+
+  #ifdef PROBE_ENABLE_PIN
+    pinMode(PROBE_ENABLE_PIN, INPUT);
+    digitalWrite(PROBE_ENABLE_PIN, LOW);
+  #endif
 
   pinMode(LED_PIN, OUTPUT);
   pinMode(OUTPUT_PIN, OUTPUT);
@@ -68,6 +82,8 @@ void setup() {
 
 void loop() {
   uint16_t fsrValue = filterAdc();
+
+  probeEnableCheck(fsrValue);
 
   thresholdCheck(fsrValue);
   velocityCheck(fsrValue);
@@ -90,6 +106,30 @@ void thresholdCheck(uint16_t fsrValue) {
 
 void velocityCheck(uint16_t fsrValue) {
 
+}
+
+void probeEnableCheck(uint16_t fsrValue) {
+  #ifndef PROBE_ENABLE_PIN
+    return;
+  #endif
+
+  bool isEnableSignal = digitalRead(PROBE_ENABLE_PIN);
+
+  // Rising edge, probe enable signaled?
+  if (!isProbeEnabled && isEnableSignal) {
+    // Calculate trigger thresholds based on last average.
+    updateTriggerLevel();
+  }
+
+  // Update internal state.
+  isProbeEnabled = isEnableSignal;
+
+  // Probe disabled? Keep track of running average for next reset enable.
+  if (!isProbeEnabled) {
+    // Update basis for recovery values running average.
+    fsrRecoveryTotal -= fsrRecoveryTotal / RECOVERY_RUNNING_AVG_COUNT;
+    fsrRecoveryTotal += fsrValue;
+  }
 }
 
 void onFsrTrigger(uint16_t fsrValue) {
@@ -118,29 +158,37 @@ void onFsrRecover(uint16_t fsrValue) {
     return;
   }
 
-  // Update basis for recovery values running average.
-  fsrRecoveryTotal -= fsrRecoveryTotal / RECOVERY_RUNNING_AVG_COUNT;
-  fsrRecoveryTotal += fsrValue;
+  // No enable signal? Recalculate trigger levels periodically in recovery, then.
+  #ifndef PROBE_ENABLE_PIN
+    // Update basis for recovery values running average.
+    fsrRecoveryTotal -= fsrRecoveryTotal / RECOVERY_RUNNING_AVG_COUNT;
+    fsrRecoveryTotal += fsrValue;
 
-  // TODO: this keeps accumulating time in triggered mode, meaning first recovery
-  //       value will always cause a trigger level update, which is bad because
-  //       recovery value often rebounds below average.
-  if ((millis() - lastTriggerUpdateAt) > TRIGGER_UPDATE_INTERVAL_MS) {
-    updateTriggerLevel();
-    lastTriggerUpdateAt = millis();
-  }
+    // TODO: this keeps accumulating time in triggered mode, meaning first recovery
+    //       value will always cause a trigger level update, which is bad because
+    //       recovery value often rebounds below average.
+    if (millis() - lastTriggerUpdateAt > TRIGGER_UPDATE_INTERVAL_MS) {
+      updateTriggerLevel();
+      lastTriggerUpdateAt = millis();
+    }
+  #endif
 }
 
 void updateTriggerLevel() {
   uint16_t fsrRecoveryAvg = fsrRecoveryTotal / RECOVERY_RUNNING_AVG_COUNT;
 
-  uint16_t fsrTriggerFloor = fsrRecoveryAvg + max(FSR_TRIGGER_MIN, 2*fsrNoise);
-  // Ceiling is the configured trigger max
-  uint16_t fsrTriggerCeiling = fsrRecoveryAvg + FSR_TRIGGER_MAX;
+  #ifdef PROBE_ENABLE_PIN
+    fsrTriggerLevel = fsrRecoveryAvg + 3*fsrNoise;
+    fsrRecoveryLevel = fsrTriggerLevel - 1.5*fsrNoise;
+  #else
+    uint16_t fsrTriggerFloor = fsrRecoveryAvg + max(FSR_TRIGGER_MIN, 2*fsrNoise);
+    // Ceiling is the configured trigger max
+    uint16_t fsrTriggerCeiling = fsrRecoveryAvg + FSR_TRIGGER_MAX;
 
-  fsrTriggerLevel = constrain(fsrRecoveryAvg * FSR_TRIGGER_MULTIPLIER, fsrTriggerFloor, fsrTriggerCeiling);
-  fsrRecoveryLevel = fsrRecoveryAvg + (fsrTriggerLevel - fsrRecoveryAvg) * FSR_RECOVERY_MULTIPLIER;
-  fsrRecoveryLevel = min(fsrRecoveryLevel, fsrTriggerLevel - 1.1*fsrNoise);
+    fsrTriggerLevel = constrain(fsrRecoveryAvg * FSR_TRIGGER_MULTIPLIER, fsrTriggerFloor, fsrTriggerCeiling);
+    fsrRecoveryLevel = fsrRecoveryAvg + (fsrTriggerLevel - fsrRecoveryAvg) * FSR_RECOVERY_MULTIPLIER;
+    fsrRecoveryLevel = min(fsrRecoveryLevel, fsrTriggerLevel - 1.1*fsrNoise);
+  #endif
 }
 
 void setupAdc() {
@@ -184,14 +232,20 @@ void calibrateAdc() {
 
   fsrAverage = valueTotal / CALIBRATION_VALUE_COUNT;
   fsrNoise = fsrNoiseMax - fsrNoiseMin;
-  // Floor is either the configured trigger minimum or 2x the noise
-  fsrTriggerFloor = fsrAverage + max(FSR_TRIGGER_MIN, 2*fsrNoise);
-  // Ceiling is the configured trigger max
-  fsrTriggerCeiling = fsrAverage + FSR_TRIGGER_MAX;
 
-  fsrTriggerLevel = constrain(fsrAverage * FSR_TRIGGER_MULTIPLIER, fsrTriggerFloor, fsrTriggerCeiling);
-  fsrRecoveryLevel = fsrAverage + (fsrTriggerLevel - fsrAverage) * FSR_RECOVERY_MULTIPLIER;
-  fsrRecoveryLevel = min(fsrRecoveryLevel, fsrTriggerLevel - 1.1*fsrNoise);
+  #ifdef PROBE_ENABLE_PIN
+    fsrTriggerLevel = fsrAverage + 3*fsrNoise;
+    fsrRecoveryLevel = fsrTriggerLevel - 1.5*fsrNoise;
+  #else
+    // Floor is either the configured trigger minimum or 2x the noise
+    fsrTriggerFloor = fsrAverage + max(FSR_TRIGGER_MIN, 2*fsrNoise);
+    // Ceiling is the configured trigger max
+    fsrTriggerCeiling = fsrAverage + FSR_TRIGGER_MAX;
+
+    fsrTriggerLevel = constrain(fsrAverage * FSR_TRIGGER_MULTIPLIER, fsrTriggerFloor, fsrTriggerCeiling);
+    fsrRecoveryLevel = fsrAverage + (fsrTriggerLevel - fsrAverage) * FSR_RECOVERY_MULTIPLIER;
+    fsrRecoveryLevel = min(fsrRecoveryLevel, fsrTriggerLevel - 1.1*fsrNoise);
+  #endif
 
   lastTriggerUpdateAt = millis();
   fsrRecoveryTotal = fsrAverage * RECOVERY_RUNNING_AVG_COUNT;
@@ -248,6 +302,9 @@ void serialReport(uint16_t fsrValue) {
   if (elapsed > SERIAL_REPORT_INTERVAL_MS && Serial.available()) {
     Serial.print("loopCount:");
     Serial.print(loopCounter);
+
+    Serial.print(",fsrNoise:");
+    Serial.print(fsrNoise);
 
     Serial.print(",triggerLevel:");
     Serial.print(fsrTriggerLevel);
