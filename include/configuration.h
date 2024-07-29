@@ -7,10 +7,10 @@
 #define LED_PIN LED_BUILTIN
 
 #define OUTPUT_PIN 20
-#define ADC_ALERT_PIN 21
+// #define ADC_ALERT_PIN 21
 
 // If defined, use this pin as an inbound signal to reset thresholds based on
-// current average reading. Undefine if no such pin is connected.
+// current average reading. Delete or comment out if no such pin is connected.
 // HIGH to reset trigger threshold and disable running average read
 // LOW to enable running average read
 #define PROBE_ENABLE_PIN 22
