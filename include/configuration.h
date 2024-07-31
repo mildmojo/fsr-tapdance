@@ -6,6 +6,9 @@
 
 #define LED_PIN LED_BUILTIN
 
+#define NEOPIXEL_PIN 12
+#define NEOPIXEL_POWER_PIN 11
+
 #define OUTPUT_PIN 20
 // #define ADC_ALERT_PIN 21
 

@@ -7,6 +7,21 @@
 #include <Wire.h>
 #include <cstdint>
 
+#ifdef NEOPIXEL_PIN
+  #include <Adafruit_NeoPixel.h>
+
+  // Parameter 1 = number of pixels in strip
+  // Parameter 2 = Arduino pin number (most are valid)
+  // Parameter 3 = pixel type flags, add together as needed:
+  //   NEO_KHZ800  800 KHz bitstream (most NeoPixel products w/WS2812 LEDs)
+  //   NEO_KHZ400  400 KHz (classic 'v1' (not v2) FLORA pixels, WS2811 drivers)
+  //   NEO_GRB     Pixels are wired for GRB bitstream (most NeoPixel products)
+  //   NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
+  //   NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products)
+  Adafruit_NeoPixel strip = Adafruit_NeoPixel(1, NEOPIXEL_PIN, NEO_GRB + NEO_KHZ800);
+  uint32_t stripColor = strip.Color(50, 150, 0);
+#endif
+
 const uint16_t CALIBRATION_TIME_MS = 500;
 const uint16_t CALIBRATION_VALUE_COUNT = 20;
 const uint16_t MAX_ADC_READING = 32768;
@@ -22,7 +37,7 @@ const int MIN_TRIGGER_COUNT = 5;
   const uint16_t RECOVERY_RUNNING_AVG_COUNT = 3000;
 #endif
 
-const ADS1115_WE adc = ADS1115_WE(ADC_I2C_ADDRESS);
+ADS1115_WE adc = ADS1115_WE(ADC_I2C_ADDRESS);
 
 uint16_t fsrFilteredValue;
 uint16_t fsrTriggerLevel;
@@ -66,8 +81,21 @@ void setup() {
     digitalWrite(PROBE_ENABLE_PIN, LOW);
   #endif
 
-  pinMode(LED_PIN, OUTPUT);
-  pinMode(OUTPUT_PIN, OUTPUT);
+  #ifdef LED_PIN
+    pinMode(LED_PIN, OUTPUT);
+    pinMode(OUTPUT_PIN, OUTPUT);
+  #endif
+
+  #ifdef NEOPIXEL_POWER_PIN
+    pinMode(NEOPIXEL_POWER_PIN, OUTPUT);
+    digitalWrite(NEOPIXEL_POWER_PIN, HIGH);
+  #endif
+
+  #ifdef NEOPIXEL_PIN
+    strip.begin();
+    strip.setBrightness(50);
+    strip.show(); // Initialize all pixels to 'off'
+  #endif
 
   // Turn on LED
   ledOn();
@@ -325,10 +353,20 @@ void serialReport(uint16_t fsrValue) {
 
 void ledOn() {
   digitalWrite(LED_PIN, HIGH);
+
+  #ifdef NEOPIXEL_PIN
+    strip.setPixelColor(1, stripColor);
+    strip.show();
+  #endif
 }
 
 void ledOff() {
   digitalWrite(LED_PIN, LOW);
+
+  #ifdef NEOPIXEL_PIN
+    strip.setPixelColor(1, strip.Color(0, 0, 0));
+    strip.show();
+  #endif
 }
 
 void outputHigh() {
