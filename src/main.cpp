@@ -5,7 +5,6 @@
 #include <ADS1115_WE.h>
 #include <Arduino.h>
 #include <Wire.h>
-#include <cstdint>
 
 #ifdef NEOPIXEL_PIN
   #include <Adafruit_NeoPixel.h>
@@ -28,16 +27,9 @@ const uint16_t MAX_ADC_READING = 32768;
 const uint16_t MIN_VALID_ADC_READING = 200;
 const uint16_t SERIAL_REPORT_INTERVAL_MS = 100;
 const int MIN_TRIGGER_COUNT = 5;
+const int TRIGGER_DEBOUNCE_MS = 200;
 
-#ifdef PROBE_ENABLE_PIN
-  // The window between probe disabled and probe enabled is short, so allow
-  // average to adjust faster.
-  const uint16_t RECOVERY_RUNNING_AVG_COUNT = 500;
-#else
-  const uint16_t RECOVERY_RUNNING_AVG_COUNT = 3000;
-#endif
-
-ADS1115_WE adc = ADS1115_WE(ADC_I2C_ADDRESS);
+ADS1115_WE adc = ADS1115_WE(&WIRE, ADC_I2C_ADDRESS);
 
 uint16_t fsrFilteredValue;
 uint16_t fsrTriggerLevel;
@@ -209,6 +201,7 @@ void updateTriggerLevel() {
     fsrTriggerLevel = fsrRecoveryAvg + 3*fsrNoise;
     fsrRecoveryLevel = fsrTriggerLevel - 1.5*fsrNoise;
   #else
+    // Floor is either the configured trigger minimum or 2x the noise
     uint16_t fsrTriggerFloor = fsrRecoveryAvg + max(FSR_TRIGGER_MIN, 2*fsrNoise);
     // Ceiling is the configured trigger max
     uint16_t fsrTriggerCeiling = fsrRecoveryAvg + FSR_TRIGGER_MAX;
@@ -220,14 +213,15 @@ void updateTriggerLevel() {
 }
 
 void setupAdc() {
-  Wire.begin();
+  WIRE.begin();
 
   if (!adc.init()) {
     Serial.println("ADS1115 not found on I2C bus! (address: " + String(ADC_I2C_ADDRESS, HEX) + ")");
+  } else {
+    Serial.println("ADS1115 initialized! (address: " + String(ADC_I2C_ADDRESS, HEX) + ")");
   }
 
   // pinMode(ADC_ALERT_PIN, INPUT_PULLUP);
-  adc = ADS1115_WE(ADC_I2C_ADDRESS);
   // adc.setCompareChannels(ADS1115_COMP_0_GND);
   adc.setVoltageRange_mV(ADC_GAIN);
   // adc.setAlertPinMode(ADS1115_ASSERT_AFTER_1);
@@ -278,7 +272,6 @@ void calibrateAdc() {
   lastTriggerUpdateAt = millis();
   fsrRecoveryTotal = fsrAverage * RECOVERY_RUNNING_AVG_COUNT;
 }
-
 
 uint16_t readAdc() {
   return adc.getRawResult();
@@ -355,7 +348,7 @@ void ledOn() {
   digitalWrite(LED_PIN, HIGH);
 
   #ifdef NEOPIXEL_PIN
-    strip.setPixelColor(1, stripColor);
+    strip.setPixelColor(0, stripColor);
     strip.show();
   #endif
 }
@@ -364,7 +357,7 @@ void ledOff() {
   digitalWrite(LED_PIN, LOW);
 
   #ifdef NEOPIXEL_PIN
-    strip.setPixelColor(1, strip.Color(0, 0, 0));
+    strip.setPixelColor(0, strip.Color(0, 0, 0));
     strip.show();
   #endif
 }
