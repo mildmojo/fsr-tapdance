@@ -8,6 +8,7 @@ class Wire1;
 class Wire2;
 
 #define LED_PIN LED_BUILTIN
+#define LED_DRIVE_SIGNAL HIGH
 
 // ***Moved to platform.ini, board-specific
 // #define NEOPIXEL_PIN 12
@@ -23,9 +24,19 @@ class Wire2;
 // ***Moved to platformio.ini, board-specific
 // #define PROBE_ENABLE_PIN 22
 
+#ifdef PROBE_ENABLE_PIN
+  // The window between probe disabled and probe enabled is short, so allow
+  // average to adjust faster.
+  const uint16_t RECOVERY_RUNNING_AVG_COUNT = 200;
+#else
+  const uint16_t RECOVERY_RUNNING_AVG_COUNT = 3000;
+#endif
+
 #define ADC_I2C_ADDRESS 0x48
 #define ADC_CHANNEL 0
+// #define ADC_GAIN ADS1115_RANGE_4096
 #define ADC_GAIN ADS1115_RANGE_2048
+// #define ADC_GAIN ADS1115_RANGE_1024
 
 // Multiplier from average reading to get trigger level
 #define FSR_TRIGGER_MULTIPLIER 1.03
