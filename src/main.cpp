@@ -53,7 +53,6 @@ uint16_t filterAdc();
 void onAdcTriggerRecover();
 void setAdcTriggerWindow();
 void thresholdCheck(uint16_t fsrValue);
-void velocityCheck(uint16_t fsrValue);
 void probeEnableCheck(uint16_t fsrValue);
 void onFsrTrigger(uint16_t fsrValue);
 void onFsrRecover(uint16_t fsrValue);
@@ -109,7 +108,6 @@ void loop() {
   probeEnableCheck(fsrValue);
 
   thresholdCheck(fsrValue);
-  velocityCheck(fsrValue);
 
   serialReport(fsrValue);
 
@@ -125,10 +123,6 @@ void thresholdCheck(uint16_t fsrValue) {
   if (fsrValue <= fsrRecoveryLevel) {
     onFsrRecover(fsrValue);
   }
-}
-
-void velocityCheck(uint16_t fsrValue) {
-
 }
 
 void probeEnableCheck(uint16_t fsrValue) {
