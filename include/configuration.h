@@ -7,8 +7,17 @@ class Wire;
 class Wire1;
 class Wire2;
 
+#ifndef DEBUG
+#define DEBUG 0
+#endif
+
+#ifndef LED_PIN
 #define LED_PIN LED_BUILTIN
+#endif
+
+#ifndef LED_DRIVE_SIGNAL
 #define LED_DRIVE_SIGNAL HIGH
+#endif
 
 // ***Moved to platform.ini, board-specific
 // #define NEOPIXEL_PIN 12
