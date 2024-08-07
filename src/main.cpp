@@ -36,8 +36,8 @@ uint16_t fsrTriggerLevel;
 uint16_t fsrRecoveryLevel;
 uint16_t fsrNoise;
 uint32_t fsrRecoveryTotal;
-uint32_t triggeredAt = 0;
 uint32_t lastTriggerUpdateAt = 0;
+uint32_t lastStateChangeAt = 0;
 
 bool isTriggered = false;
 bool isProbeEnabled = false;
@@ -97,26 +97,31 @@ void setup() {
   calibrateAdc();
 
   lastTriggerUpdateAt = millis();
+  lastStateChangeAt = millis();
   fsrFilteredValue = fsrRecoveryTotal / RECOVERY_RUNNING_AVG_COUNT;
 
   ledOff();
 }
 
 void loop() {
+  // Read and filter ADC.
   uint16_t fsrValue = filterAdc();
 
+  // Recalibrate trigger/recovery levels when probe enable pin is flipped.
   probeEnableCheck(fsrValue);
 
+  // Fire event handlers if ADC goes above trigger or below recovery levels.
   thresholdCheck(fsrValue);
 
+  // Output state to serial for Arduino IDE serial plotter.
   serialReport(fsrValue);
 
+  // Basic benchmarking counter.
   loopCounter++;
 }
 
 void thresholdCheck(uint16_t fsrValue) {
   if (fsrValue > fsrTriggerLevel) {
-    validTriggerCount = constrain(++validTriggerCount, 0, MIN_TRIGGER_COUNT);
     onFsrTrigger(fsrValue);
   }
 
@@ -148,23 +153,29 @@ void probeEnableCheck(uint16_t fsrValue) {
 }
 
 void onFsrTrigger(uint16_t fsrValue) {
-  if (isTriggered || validTriggerCount < MIN_TRIGGER_COUNT) {
+  validTriggerCount++;
+
+  if (isTriggered || validTriggerCount < MIN_TRIGGER_COUNT || millis() - lastStateChangeAt < OUTPUT_DEBOUNCE_MS) {
     return;
   }
+
+  if (DEBUG) Serial.println("TRIGGERED");
 
   // TODO: as long as we stay triggered, add timeout after which trigger level
   //       starts to decay so we eventually auto-recover.
 
   outputLow();
   ledOn();
-  triggeredAt = millis();
+  lastStateChangeAt = millis();
   isTriggered = true;
 }
 
 void onFsrRecover(uint16_t fsrValue) {
-  if (isTriggered) {
+  if (isTriggered && millis() - lastStateChangeAt >= OUTPUT_DEBOUNCE_MS) {
+    if (DEBUG) Serial.println("RECOVERED");
     outputHigh();
     ledOff();
+    lastStateChangeAt = millis();
     isTriggered = false;
     validTriggerCount = 0;
   }
@@ -216,14 +227,9 @@ void setupAdc() {
     Serial.println("ADS1115 initialized! (address: " + String(ADC_I2C_ADDRESS, HEX) + ")");
   }
 
-  // pinMode(ADC_ALERT_PIN, INPUT_PULLUP);
-  // adc.setCompareChannels(ADS1115_COMP_0_GND);
-  adc.setVoltageRange_mV(ADC_GAIN);
-  // adc.setAlertPinMode(ADS1115_ASSERT_AFTER_1);
+  adc.setVoltageRange_mV(ADC_RANGE);
   adc.setConvRate(ADS1115_860_SPS);
   adc.setMeasureMode(ADS1115_CONTINUOUS);
-
-  // attachInterrupt(digitalPinToInterrupt(ADC_ALERT_PIN), onAdcTriggerRecover, FALLING);
 }
 
 void calibrateAdc() {
@@ -328,7 +334,9 @@ void serialReport(uint16_t fsrValue) {
 
 void ledOn() {
   digitalWrite(LED_PIN, LED_DRIVE_SIGNAL);
- 
+
+  if (DEBUG) Serial.println("LED ON");
+
   #ifdef NEOPIXEL_PIN
     strip.setPixelColor(0, stripColor);
     strip.show();
@@ -337,7 +345,9 @@ void ledOn() {
 
 void ledOff() {
   digitalWrite(LED_PIN, !LED_DRIVE_SIGNAL);
- 
+
+  if (DEBUG) Serial.println("LED OFF");
+
   #ifdef NEOPIXEL_PIN
     strip.setPixelColor(0, strip.Color(0, 0, 0));
     strip.show();

@@ -43,9 +43,9 @@ class Wire2;
 
 #define ADC_I2C_ADDRESS 0x48
 #define ADC_CHANNEL 0
-// #define ADC_GAIN ADS1115_RANGE_4096
-#define ADC_GAIN ADS1115_RANGE_2048
-// #define ADC_GAIN ADS1115_RANGE_1024
+// #define ADC_RANGE ADS1115_RANGE_4096
+#define ADC_RANGE ADS1115_RANGE_2048
+// #define ADC_RANGE ADS1115_RANGE_1024
 
 // Multiplier from average reading to get trigger level
 #define FSR_TRIGGER_MULTIPLIER 1.03
@@ -61,6 +61,9 @@ class Wire2;
 #define TRIGGER_UPDATE_INTERVAL_MS 500
 // Number of samples to average when determining new baseline for trigger level
 #define TRIGGER_UPDATE_SAMPLE_COUNT 100
+
+// Debounce state transitions.
+#define OUTPUT_DEBOUNCE_MS 80
 
 #ifdef ADC_I2C_BUS0
 #define WIRE Wire
